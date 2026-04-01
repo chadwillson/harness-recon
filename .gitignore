@@ -1,0 +1,9 @@
+# Large test trace files — keep JSON/TRX summaries, skip full logs
+Population/*/traces/*.log
+Population/*/traces/*.trx
+
+# Coverage XML can be large
+Population/*/traces/coverage.xml
+
+# Memory files are local-only
+memory/
