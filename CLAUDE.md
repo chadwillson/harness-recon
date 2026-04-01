@@ -279,6 +279,84 @@ cd /mnt/d/DocumentPayment && dotnet test Tideline.Payment.slnx
 
 ---
 
+## Deploy & E2E Pipeline (ACI)
+
+After unit tests pass locally, deploy to Azure Container Instances and verify with Playwright e2e tests.
+
+### Full pipeline (build → push → deploy → test)
+```powershell
+pwsh Scripts/deploy.ps1
+```
+
+This will:
+1. Login to ACR via `docker login` (WSL2-safe workaround — avoids `az acr login` vsock failure)
+2. `docker build` both images (Recon from `/mnt/d/DocumentReconciliation`, Payment from `/mnt/d/DocumentPayment`)
+3. `docker push` both images to `tidelinerecpoc.azurecr.io`
+4. `az container delete` + `az container create` both ACI containers
+5. Poll both URLs until HTTP 200 (up to 6 minutes — SQL Server + .NET startup ~90–120s)
+6. Run Playwright e2e suites against both ACI URLs
+7. Write results to `Population/iteration-NNN/traces/`
+
+### Common partial runs
+```powershell
+# Re-run e2e only (containers already running)
+pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy
+
+# Build and push only (no redeploy)
+pwsh Scripts/deploy.ps1 -SkipDeploy -SkipE2e
+
+# Run e2e against local dev servers
+pwsh Scripts/run-e2e.ps1 -ReconUrl http://localhost:4202 -PaymentUrl http://localhost:4203
+```
+
+### E2E test locations
+```
+/mnt/d/DocumentReconciliation/e2e/       ← Recon Playwright specs
+  smoke.spec.ts           queue, workstation smoke test
+  queue.spec.ts           Queue Dashboard — rows, filters, navigation
+  workstation.spec.ts     Workstation — PDF viewer, tabs, dialogs
+  completed.spec.ts       Completed Documents list
+  reports.spec.ts         Reports page
+  admin.spec.ts           Admin — Reset Demo Data flow
+  api-health.spec.ts      Direct HTTP assertions on every API endpoint
+  helpers.ts              Shared: collectDiagnostics, waitForApp, clickNav, etc.
+
+/mnt/d/DocumentPayment/e2e/              ← Payment Playwright specs
+  smoke.spec.ts           Payment Assignment landing smoke test
+  ledger.spec.ts          Payment Ledger — stats, rows, Cash Buckets, Exports
+  claim-assignment.spec.ts Assign Payment to Claim — Step 1→2→3 full flow
+  claim-lookup.spec.ts    Patient/claim search
+  reports.spec.ts         Reports — claim history + ledger summary
+  admin.spec.ts           Admin — Reset Demo Data flow
+  api-health.spec.ts      Direct HTTP assertions on every Payment API endpoint
+  helpers.ts              Shared helpers (same interface as Recon)
+```
+
+### ACI URLs
+```
+Recon:   http://tideline-recon-poc.westus.azurecontainer.io:8080
+Payment: http://tideline-payment-poc.westus.azurecontainer.io:8080
+```
+Both run SQL Server 2022 + ASP.NET Core 10 inside a single container with demo data pre-seeded.
+
+### E2E results in scores.json
+After `deploy.ps1` runs, `scores.json` for the iteration includes:
+```json
+"reconE2eTests":   { "passed": N, "failed": M, "total": T, "passRate": 0.X },
+"paymentE2eTests": { "passed": N, "failed": M, "total": T, "passRate": 0.X }
+```
+Detailed failure messages live in `traces/e2e-results.json`.
+HTML reports are in `traces/playwright-report-recon/` and `traces/playwright-report-payment/`.
+
+### Known false positives in e2e
+The helpers filter these out automatically — do **not** treat them as failures:
+- Favicon 404s
+- `react-devtools` console errors
+- `ERR_CONNECTION_REFUSED` / `net::ERR_*` on retry attempts
+- `/ledger/claims/` returning 500 (expected — RCMClaimsDB preview SP not always present)
+
+---
+
 ## Quick Reference
 
 | Goal | Command |
@@ -291,11 +369,16 @@ cd /mnt/d/DocumentPayment && dotnet test Tideline.Payment.slnx
 | Validate a change | `pwsh Scripts/validate.ps1` |
 | Run full evaluation | `pwsh Scripts/evaluate.ps1` |
 | Initialize baseline | `pwsh Scripts/Initialize-Baseline.ps1` |
+| **Full deploy + e2e** | **`pwsh Scripts/deploy.ps1`** |
+| Re-run e2e only | `pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy` |
+| Run e2e standalone | `pwsh Scripts/run-e2e.ps1` |
 | Start the suite | `pwsh D:\Harness-Recon\start-suite.ps1` |
 | Stop the suite | `pwsh D:\Harness-Recon\stop-suite.ps1` |
-| Reconciliation API | `http://localhost:5200` |
-| Payment API | `http://localhost:5201` |
-| React UI | `http://localhost:4202` |
+| Reconciliation API (local) | `http://localhost:5200` |
+| Payment API (local) | `http://localhost:5201` |
+| React UI (local) | `http://localhost:4202` |
+| Recon ACI | `http://tideline-recon-poc.westus.azurecontainer.io:8080` |
+| Payment ACI | `http://tideline-payment-poc.westus.azurecontainer.io:8080` |
 
 ---
 

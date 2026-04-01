@@ -308,6 +308,38 @@ $allFailures = @{
 }
 $allFailures | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $tracesDir "failed-tests.json")
 
+# ── Load e2e results if already captured by deploy.ps1 ───────────────────────
+
+function Load-E2eResults {
+    param([string]$TracesDir)
+    $e2ePath = Join-Path $TracesDir "e2e-results.json"
+    if (-not (Test-Path $e2ePath)) {
+        return @{
+            recon   = @{ passed = 0; failed = 0; total = 0; passRate = 0 }
+            payment = @{ passed = 0; failed = 0; total = 0; passRate = 0 }
+            present = $false
+        }
+    }
+    $raw = Get-Content $e2ePath -Raw | ConvertFrom-Json
+    return @{
+        recon   = @{
+            passed   = [int]($raw.recon.passed   ?? 0)
+            failed   = [int]($raw.recon.failed   ?? 0)
+            total    = [int]($raw.recon.total    ?? 0)
+            passRate = [double]($raw.recon.passRate ?? 0)
+        }
+        payment = @{
+            passed   = [int]($raw.payment.passed   ?? 0)
+            failed   = [int]($raw.payment.failed   ?? 0)
+            total    = [int]($raw.payment.total    ?? 0)
+            passRate = [double]($raw.payment.passRate ?? 0)
+        }
+        present = $true
+    }
+}
+
+$e2eData = Load-E2eResults -TracesDir $tracesDir
+
 # ── Compute combined use-case pass rate ───────────────────────────────────────
 
 $totalPassed = $reconResults.passed + $handlerResults.passed + $paymentResults.passed
@@ -405,6 +437,20 @@ $scores = @{
             total    = $paymentResults.total
             passRate = $paymentResults.passRate
         }
+        reconE2eTests = @{
+            passed   = $e2eData.recon.passed
+            failed   = $e2eData.recon.failed
+            total    = $e2eData.recon.total
+            passRate = $e2eData.recon.passRate
+            present  = $e2eData.present
+        }
+        paymentE2eTests = @{
+            passed   = $e2eData.payment.passed
+            failed   = $e2eData.payment.failed
+            total    = $e2eData.payment.total
+            passRate = $e2eData.payment.passRate
+            present  = $e2eData.present
+        }
         coverage = @{
             lineRate       = $coverage.lineRate
             branchRate     = $coverage.branchRate
@@ -438,6 +484,22 @@ $frontierItems | ConvertTo-Json -Depth 6 | Set-Content (Join-Path $ResultsRoot "
 
 $totalFailed = $reconResults.failed + $handlerResults.failed + $paymentResults.failed
 
+$e2eSection = if ($e2eData.present) {
+    @"
+
+## E2E Tests (ACI)
+
+| Suite | Passed | Failed | Total | Pass Rate |
+|-------|--------|--------|-------|-----------|
+| Reconciliation E2E | $($e2eData.recon.passed) | $($e2eData.recon.failed) | $($e2eData.recon.total) | $([math]::Round($e2eData.recon.passRate * 100, 1))% |
+| Payment E2E | $($e2eData.payment.passed) | $($e2eData.payment.failed) | $($e2eData.payment.total) | $([math]::Round($e2eData.payment.passRate * 100, 1))% |
+
+See ``traces/e2e-results.json`` for failure details. Playwright reports in ``traces/playwright-report-recon/`` and ``traces/playwright-report-payment/``.
+"@
+} else {
+    "`n## E2E Tests (ACI)`n`nNot run for this iteration. Run ``pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy`` to add e2e results.`n"
+}
+
 $outcomeContent = @"
 # Outcome: Iteration $IterationLabel
 
@@ -453,7 +515,7 @@ $outcomeContent = @"
 | Payment Unit | $($paymentResults.passed) | $($paymentResults.failed) | $($paymentResults.total) | $([math]::Round($paymentResults.passRate * 100, 1))% |
 
 **Coverage:** $([math]::Round($coverage.lineRate * 100, 1))% line rate $(if ($coverage.lineRate -ge 0.80) { "(✓ meets threshold)" } else { "(✗ below 80% threshold)" })
-
+$e2eSection
 ## Delta from Prior
 
 $(if ($delta.Count -gt 0) {
@@ -464,7 +526,7 @@ $(if ($delta.Count -gt 0) {
 
 ## Failures
 
-$totalFailed total failures. See ``traces/failed-tests.json`` for details.
+$totalFailed total unit/handler test failures. See ``traces/failed-tests.json`` for details.
 "@
 
 $outcomeContent | Set-Content (Join-Path $iterDir "outcome.md")
@@ -479,6 +541,12 @@ Write-Host ""
 Write-Host "  Recon Unit:    $($reconResults.passed)/$($reconResults.total) passed ($([math]::Round($reconResults.passRate * 100, 1))%)" -ForegroundColor $(if ($reconResults.failed -eq 0) { "Green" } else { "Yellow" })
 Write-Host "  Recon Handler: $($handlerResults.passed)/$($handlerResults.total) passed ($([math]::Round($handlerResults.passRate * 100, 1))%)" -ForegroundColor $(if ($handlerResults.failed -eq 0) { "Green" } else { "Yellow" })
 Write-Host "  Payment Unit:  $($paymentResults.passed)/$($paymentResults.total) passed ($([math]::Round($paymentResults.passRate * 100, 1))%)" -ForegroundColor $(if ($paymentResults.failed -eq 0) { "Green" } else { "Yellow" })
+if ($e2eData.present) {
+    Write-Host "  Recon E2E:     $($e2eData.recon.passed)/$($e2eData.recon.total) passed ($([math]::Round($e2eData.recon.passRate * 100, 1))%)" -ForegroundColor $(if ($e2eData.recon.failed -eq 0) { "Green" } else { "Yellow" })
+    Write-Host "  Payment E2E:   $($e2eData.payment.passed)/$($e2eData.payment.total) passed ($([math]::Round($e2eData.payment.passRate * 100, 1))%)" -ForegroundColor $(if ($e2eData.payment.failed -eq 0) { "Green" } else { "Yellow" })
+} else {
+    Write-Host "  E2E:           (not run — use deploy.ps1 to add ACI e2e results)" -ForegroundColor Gray
+}
 Write-Host "  Coverage:      $([math]::Round($coverage.lineRate * 100, 1))%" -ForegroundColor $(if ($coverage.lineRate -ge 0.80) { "Green" } else { "Red" })
 Write-Host "  Pareto:        $($scores.paretoStatus)" -ForegroundColor $(if ($onFrontier) { "Green" } else { "Gray" })
 Write-Host ""
