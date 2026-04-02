@@ -187,9 +187,27 @@ function Redeploy-ACI {
     }
     Log "  [✓] ACI container deleted (or did not exist): $ContainerName"
 
-    # Fetch fresh ACR password for ACI registry credential
-    $acrPass = & az acr credential show --name $AcrName --query "passwords[0].value" -o tsv 2>&1
-    if ($LASTEXITCODE -ne 0) { Write-Error "  [✗] Could not fetch ACR password for ACI create." }
+    # Use a scoped ACR token for ACI registry auth.
+    # Admin credentials cause InaccessibleImage on new container creation in West US
+    # (known issue: renewed admin creds take days to propagate to ACI pull service).
+    # Scoped tokens (az acr token create --scope-map _repositories_pull) work immediately.
+    $acrTokenName = "aci-pull-token"
+    $acrTokenPwd  = & az acr token credential generate `
+        --name $acrTokenName `
+        --registry $AcrName `
+        --expiration-in-days 7 `
+        --query "passwords[0].value" -o tsv 2>&1
+    if ($LASTEXITCODE -ne 0) {
+        # Fallback: create the token if it doesn't exist yet
+        Log "  [!] Token not found — creating aci-pull-token..."
+        $tokenInfo = & az acr token create `
+            --name $acrTokenName `
+            --registry $AcrName `
+            --scope-map _repositories_pull `
+            --query "credentials.passwords[0].value" -o tsv 2>&1
+        $acrTokenPwd = $tokenInfo
+    }
+    if (-not $acrTokenPwd) { Write-Error "  [✗] Could not obtain ACR token for ACI create." }
 
     Log "  [→] Creating ACI container: $ContainerName..."
     $createArgs = @(
@@ -198,8 +216,8 @@ function Redeploy-ACI {
         "--name", $ContainerName,
         "--image", $Image,
         "--registry-login-server", $AcrRegistry,
-        "--registry-username", $AcrUser,
-        "--registry-password", $acrPass,
+        "--registry-username", $acrTokenName,
+        "--registry-password", $acrTokenPwd,
         "--dns-name-label", $DnsLabel,
         "--ports", "8080",
         "--os-type", "Linux",

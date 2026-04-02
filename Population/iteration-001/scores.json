@@ -38,11 +38,11 @@
       "passRate": 1.0
     },
     "paymentE2eTests": {
-      "passed": 56,
-      "failed": 2,
+      "passed": 58,
+      "failed": 0,
       "skipped": 4,
       "total": 62,
-      "passRate": 0.9655
+      "passRate": 1.0
     }
   },
   "buildSucceeded": true,
