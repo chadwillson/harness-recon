@@ -42,7 +42,7 @@ function Get-NextIteration {
 
 if ($IterationLabel -eq "") {
     $iterNum = Get-NextIteration
-    $IterationLabel = "{0:D3}" -f $iterNum
+    $IterationLabel = "{0:D3}" -f [int]$iterNum
 }
 
 $iterDir = Join-Path $PopulationRoot "iteration-$IterationLabel"
@@ -112,6 +112,7 @@ function Invoke-DotNetTest {
     $args = @(
         "test", $ProjectPath,
         "--no-build",
+        "--configuration", "Release",
         "--logger", "trx;LogFileName=$TrxOutputPath",
         "--verbosity", "normal"
     )

@@ -1,0 +1,53 @@
+{
+  "timestamp": "2026-04-02T00:07:51.888345-05:00",
+  "hypothesis": "# Hypothesis: Iteration 001 — Fix e2e Test Spec Bugs + Payment Dockerfile Connection String",
+  "metrics": {
+    "paymentUnitTests": {
+      "passRate": 1.0,
+      "passed": 21,
+      "failed": 0,
+      "total": 21
+    },
+    "useCases": {
+      "passRate": 1.0,
+      "passed": 255,
+      "total": 255
+    },
+    "reconUnitTests": {
+      "passRate": 1.0,
+      "passed": 129,
+      "failed": 0,
+      "total": 129
+    },
+    "coverage": {
+      "lineRate": 0,
+      "branchRate": 0,
+      "meetsThreshold": false
+    },
+    "reconHandlerTests": {
+      "passRate": 1.0,
+      "passed": 105,
+      "failed": 0,
+      "total": 105
+    },
+    "reconE2eTests": {
+      "passed": 55,
+      "failed": 0,
+      "skipped": 2,
+      "total": 57,
+      "passRate": 1.0
+    },
+    "paymentE2eTests": {
+      "passed": 56,
+      "failed": 2,
+      "skipped": 4,
+      "total": 62,
+      "passRate": 0.9655
+    }
+  },
+  "buildSucceeded": true,
+  "deltaFromPrior": {},
+  "iteration": 1,
+  "paretoStatus": "frontier",
+  "iterationLabel": "iteration-001"
+}

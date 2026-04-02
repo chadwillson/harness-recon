@@ -151,10 +151,24 @@ function Invoke-PlaywrightSuite {
     }
 
     try {
-        Push-Location $SuiteRoot
-        $output = & npx playwright test --reporter=json,line 2>&1
-        $exitCode = $LASTEXITCODE
-        Pop-Location
+        # Convert Windows D:\ path to WSL /mnt/d/ path for the wsl command
+        $wslRoot = $SuiteRoot -replace "^D:\\", "/mnt/d/" -replace "\\", "/"
+
+        # Build env var string for WSL
+        $envPrefix = ($EnvVars.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join " "
+
+        if ($IsWSL) {
+            # Already in WSL — run directly
+            Push-Location $SuiteRoot
+            $output = & npx playwright test --reporter=json,line 2>&1
+            $exitCode = $LASTEXITCODE
+            Pop-Location
+        } else {
+            # Running from Windows PowerShell — use wsl to run in Linux context
+            $wslCmd = "cd '$wslRoot' && $envPrefix node_modules/.bin/playwright test --reporter=json,line"
+            $output = & wsl bash -c $wslCmd 2>&1
+            $exitCode = $LASTEXITCODE
+        }
     } finally {
         foreach ($key in $savedEnv.Keys) {
             [System.Environment]::SetEnvironmentVariable($key, $savedEnv[$key])

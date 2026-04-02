@@ -121,43 +121,33 @@ Write-Host ""
 $deployLog = @()
 function Log { param([string]$msg) $script:deployLog += $msg; Write-Host $msg }
 
-# ── Step 1: ACR login (WSL2 workaround) ─────────────────────────────────────
-
-if (-not $SkipBuild -or -not $SkipPush) {
-    Log "  [→] Logging in to ACR (WSL2 workaround)..."
-    try {
-        $acrPass = & az acr credential show --name $AcrName --query "passwords[0].value" -o tsv 2>&1
-        if ($LASTEXITCODE -ne 0) {
-            Write-Error "  [✗] Failed to fetch ACR credentials. Ensure 'az login' has been run and subscription is set."
-        }
-        $acrPass | & docker login $AcrRegistry --username $AcrUser --password-stdin
-        if ($LASTEXITCODE -ne 0) { Write-Error "  [✗] docker login failed." }
-        Log "  [✓] ACR login successful"
-    } catch {
-        Write-Error "  [✗] ACR login error: $_"
-    }
-} else {
-    Log "  [─] ACR login skipped (build and push both skipped)"
-}
-
-# ── Step 2: Build images ─────────────────────────────────────────────────────
+# ── Steps 1–3: Build + push images via az acr build (WSL2 — no local Docker daemon) ──────────
+# az acr build sends the source context to ACR and builds in the cloud.
+# This avoids the local Docker daemon requirement and the Alpine→Ubuntu layer
+# export bug that caused "failed to get layer sha256:...: layer does not exist"
+# in the multi-stage Payment Dockerfile when using docker build + docker push.
 
 function Build-Image {
     param([string]$ContextPath, [string]$Tag, [string]$Name)
+    # Tag format: registry.azurecr.io/repo:tag → extract repo:tag for --image
+    $imageRef = $Tag -replace "^$([regex]::Escape($AcrRegistry))/", ""
     if (-not (Test-Path $ContextPath)) {
         Write-Warning "  [!] Context path not found: $ContextPath"
         return $false
     }
-    Log "  [→] Building $Name image..."
-    $buildLog = Join-Path $tracesDir "docker-build-$($Name.ToLower()).log"
-    $output = & docker build -t $Tag $ContextPath 2>&1
+    Log "  [→] Building $Name image via ACR cloud build (az acr build)..."
+    $buildLog = Join-Path $tracesDir "acr-build-$($Name.ToLower()).log"
+    $output = & az acr build `
+        --registry $AcrName `
+        --image "$imageRef" `
+        $ContextPath 2>&1
     $output | Set-Content $buildLog
     if ($LASTEXITCODE -ne 0) {
-        Log "  [✗] Build FAILED for $Name — see $buildLog"
-        $output | Select-Object -Last 15 | ForEach-Object { Log "      $_" }
+        Log "  [✗] ACR build FAILED for $Name — see $buildLog"
+        $output | Select-Object -Last 20 | ForEach-Object { Log "      $_" }
         return $false
     }
-    Log "  [✓] $Name image built successfully"
+    Log "  [✓] $Name image built and pushed to ACR successfully"
     return $true
 }
 
@@ -174,31 +164,9 @@ if (-not $SkipBuild) {
     Log "  [─] Build skipped (-SkipBuild)"
 }
 
-# ── Step 3: Push images ──────────────────────────────────────────────────────
-
-function Push-Image {
-    param([string]$Tag, [string]$Name)
-    Log "  [→] Pushing $Name image to ACR..."
-    $pushLog = Join-Path $tracesDir "docker-push-$($Name.ToLower()).log"
-    $output = & docker push $Tag 2>&1
-    $output | Set-Content $pushLog
-    if ($LASTEXITCODE -ne 0) {
-        Log "  [✗] Push FAILED for $Name — see $pushLog"
-        return $false
-    }
-    Log "  [✓] $Name image pushed successfully"
-    return $true
-}
-
+# az acr build pushes automatically — no separate push step needed.
 if (-not $SkipPush) {
-    if (-not $SkipRecon) {
-        $ok = Push-Image -Tag $ReconImage -Name "Recon"
-        if (-not $ok) { Write-Error "Reconciliation image push failed." }
-    }
-    if (-not $SkipPayment) {
-        $ok = Push-Image -Tag $PaymentImage -Name "Payment"
-        if (-not $ok) { Write-Error "Payment image push failed." }
-    }
+    Log "  [─] Push step skipped — az acr build already pushes to registry"
 } else {
     Log "  [─] Push skipped (-SkipPush)"
 }

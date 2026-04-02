@@ -1,0 +1,13 @@
+{
+  "iteration": "000",
+  "paymentImage": "tidelinerecpoc.azurecr.io/tideline-payment:latest",
+  "paymentUrl": "http://tideline-payment-poc.westus.azurecontainer.io:8080",
+  "deploySkipped": true,
+  "reconImage": "tidelinerecpoc.azurecr.io/tideline-recon-app:latest",
+  "timestamp": "2026-04-02T00:02:29.7323165-05:00",
+  "e2eResults": null,
+  "buildSkipped": false,
+  "e2eSkipped": true,
+  "reconUrl": "http://tideline-recon-poc.westus.azurecontainer.io:8080",
+  "pushSkipped": false
+}
