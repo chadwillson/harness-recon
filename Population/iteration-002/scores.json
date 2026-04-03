@@ -1,0 +1,61 @@
+{
+  "iteration": 2,
+  "timestamp": "2026-04-02T19:35:00Z",
+  "hypothesis": "Remove Payment Assignment and Claim Discovery from Recon sidebar nav; rebuild and deploy with Docker build fixes (cf4 pattern + CU14 pin + local Docker build to avoid ACR agent layer-cache bug)",
+  "metrics": {
+    "reconUnitTests": {
+      "passRate": 1.0,
+      "passed": 129,
+      "failed": 0,
+      "total": 129,
+      "note": "Unchanged from iteration-001"
+    },
+    "reconHandlerTests": {
+      "passRate": 1.0,
+      "passed": 105,
+      "failed": 0,
+      "total": 105,
+      "note": "Unchanged from iteration-001"
+    },
+    "paymentUnitTests": {
+      "passRate": 1.0,
+      "passed": 21,
+      "failed": 0,
+      "total": 21,
+      "note": "Unchanged from iteration-001"
+    },
+    "coverage": {
+      "lineRate": 0,
+      "branchRate": 0,
+      "meetsThreshold": false,
+      "note": "Coverage not re-run this iteration (nav-only change)"
+    },
+    "reconE2eTests": {
+      "passed": 54,
+      "failed": 1,
+      "skipped": 2,
+      "total": 57,
+      "passRate": 0.9818,
+      "knownFailures": ["Payment Ledger stats load without 500 (timeout — ClaimsDB preview SP flaky)"]
+    },
+    "paymentE2eTests": {
+      "passed": 0,
+      "failed": 0,
+      "skipped": 0,
+      "total": 0,
+      "passRate": 0,
+      "note": "Payment not redeployed this iteration"
+    }
+  },
+  "deltaFromPrior": {
+    "reconE2ePassRate": "-0.0182 (54 vs 55 passed — 1 new timeout on ClaimsDB flaky test)",
+    "reconUnitPassRate": "0.0",
+    "paymentUnitPassRate": "0.0"
+  },
+  "buildNotes": {
+    "acrCloudBuild": "ABANDONED — persistent 'layer does not exist' failure at step 24 (runs cf5-cfa). Root cause: ACR build agent layer-cache corruption for mssql/server base layers.",
+    "localDockerBuild": "SUCCESS — docker build --network=host --provenance=false -t IMAGE CONTEXT. Required: (1) --network=host for WSL2 DNS; (2) --provenance=false to produce single-arch manifest (OCI manifest-list breaks ACI pull); (3) sg docker for docker group access.",
+    "aciDeploy": "SUCCESS with admin credentials + versioned tag :v002. 'latest' tag caused InaccessibleImage (ACR caches old manifest-list under 'latest'). Versioned tag is clean."
+  },
+  "paretoStatus": "pending"
+}

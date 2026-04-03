@@ -194,19 +194,30 @@ The proposer's goal is to push the frontier forward each iteration.
 
 ---
 
+## Script Maintenance Rule (MANDATORY)
+
+**Both script sets must always be kept in sync.** Every `Scripts/*.ps1` has a matching `Scripts/*.sh`, and `start-suite.ps1`/`stop-suite.ps1` have matching `.sh` counterparts at the root.
+
+**Whenever you modify any `.ps1` script, you MUST update the corresponding `.sh` script in the same commit — and vice versa.** This applies to logic changes, new flags, new constants, and structural changes. Drift between the two sets will break WSL-only workflows.
+
+After any script change, run `bash -n Scripts/*.sh` to verify syntax before committing.
+
+---
+
 ## Starting a New Search Session
 
 If you are beginning a new optimization session with no prior context:
 
-```powershell
-# 1. Check what history exists
+```bash
+# WSL (preferred)
+bash Scripts/harness-cli.sh list-iterations
+bash Scripts/harness-cli.sh pareto-frontier
+bash Scripts/harness-cli.sh show-traces   # shows most recent
+
+# Windows PowerShell
 pwsh Scripts/harness-cli.ps1 list-iterations
-
-# 2. See the current best
 pwsh Scripts/harness-cli.ps1 pareto-frontier
-
-# 3. Read the most recent iteration's failed tests
-pwsh Scripts/harness-cli.ps1 show-traces   # shows most recent
+pwsh Scripts/harness-cli.ps1 show-traces
 ```
 
 If no iterations exist yet, run the baseline capture:
@@ -254,17 +265,20 @@ React UI            → http://localhost:4202
 ```
 
 ### To start the suite
-```powershell
-# Windows PowerShell / WSL
-pwsh D:\Harness-Recon\start-suite.ps1
+```bash
+# WSL (preferred)
+bash /mnt/d/Harness-Recon/start-suite.sh
 
-# Or use the individual start scripts
-cd D:\DocumentReconciliation && .\1-START.ps1
-cd D:\DocumentPayment && .\1-START.ps1
+# Windows PowerShell
+pwsh D:\Harness-Recon\start-suite.ps1
 ```
 
 ### To run evaluation
-```powershell
+```bash
+# WSL (preferred)
+bash Scripts/evaluate.sh
+
+# Windows PowerShell
 pwsh Scripts/evaluate.ps1
 ```
 
@@ -284,28 +298,43 @@ cd /mnt/d/DocumentPayment && dotnet test Tideline.Payment.slnx
 After unit tests pass locally, deploy to Azure Container Instances and verify with Playwright e2e tests.
 
 ### Full pipeline (build → push → deploy → test)
-```powershell
+```bash
+# WSL (preferred)
+bash Scripts/deploy.sh
+
+# Windows PowerShell
 pwsh Scripts/deploy.ps1
 ```
 
 This will:
-1. Login to ACR via `docker login` (WSL2-safe workaround — avoids `az acr login` vsock failure)
-2. `docker build` both images (Recon from `/mnt/d/DocumentReconciliation`, Payment from `/mnt/d/DocumentPayment`)
-3. `docker push` both images to `tidelinerecpoc.azurecr.io`
-4. `az container delete` + `az container create` both ACI containers
-5. Poll both URLs until HTTP 200 (up to 6 minutes — SQL Server + .NET startup ~90–120s)
-6. Run Playwright e2e suites against both ACI URLs
-7. Write results to `Population/iteration-NNN/traces/`
+1. **Local** `docker build --network=host --provenance=false` (NOT `az acr build` — cloud build agents have persistent mssql layer-cache corruption; see Build Notes below)
+2. `docker push` both images: `:latest` + `:vNNN` (versioned tag)
+3. `az container delete` + `az container create` with **admin credentials + versioned tag** (scoped tokens fail; `latest` tag triggers InaccessibleImage due to manifest-list caching)
+4. Poll both URLs until HTTP 200 (up to 6 minutes — SQL Server + .NET startup ~90–120s)
+5. Run Playwright e2e suites against both ACI URLs
+6. Write results to `Population/iteration-NNN/traces/`
+
+### Build Notes (IMPORTANT — do not revert these)
+- **`az acr build` is broken** for this project: persistent "layer does not exist" at step 24 (COPY CreateDatabase.sql). Cause: ACR cloud build agent layer-cache corruption for `mssql/server` base image. Has been reproduced across runs cf5–cfa. Do not attempt to fix by changing tags or importing to ACR.
+- **Local Docker build** requires `--network=host` (WSL2 container DNS resolution) and `--provenance=false` (prevents OCI manifest-list that ACI can't pull).
+- **ACI auth**: Use ACR admin credentials (`tidelinerecpoc` / password from `az acr credential show`). Scoped tokens (`aci-pull-token`) fail with InaccessibleImage.
+- **ACI image tag**: Always use versioned tag (`:v002`, `:v003`, etc.) for `az container create --image`. The `latest` tag in ACR still points to an old OCI manifest-list; ACI's pull path resolves to it and fails even after you push a new standard manifest under `latest`.
 
 ### Common partial runs
-```powershell
+```bash
 # Re-run e2e only (containers already running)
-pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy
+bash Scripts/deploy.sh --skip-build --skip-deploy        # WSL
+pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy # PowerShell
 
-# Build and push only (no redeploy)
-pwsh Scripts/deploy.ps1 -SkipDeploy -SkipE2e
+# Build and deploy only (skip e2e)
+bash Scripts/deploy.sh --skip-e2e
+pwsh Scripts/deploy.ps1 -SkipE2e
+
+# Recon only (Payment unchanged)
+bash Scripts/deploy.sh --skip-payment
 
 # Run e2e against local dev servers
+bash Scripts/run-e2e.sh --recon-url http://localhost:4202 --payment-url http://localhost:4203
 pwsh Scripts/run-e2e.ps1 -ReconUrl http://localhost:4202 -PaymentUrl http://localhost:4203
 ```
 
@@ -359,26 +388,26 @@ The helpers filter these out automatically — do **not** treat them as failures
 
 ## Quick Reference
 
-| Goal | Command |
-|------|---------|
-| See all history | `pwsh Scripts/harness-cli.ps1 list-iterations` |
-| Current best scores | `pwsh Scripts/harness-cli.ps1 pareto-frontier` |
-| Failed tests for iter N | `pwsh Scripts/harness-cli.ps1 show-traces N` |
-| Hypothesis contract results | `pwsh Scripts/harness-cli.ps1 show-contract N` |
-| Diff two iterations | `pwsh Scripts/harness-cli.ps1 diff-scores A B` |
-| Validate a change | `pwsh Scripts/validate.ps1` |
-| Run full evaluation | `pwsh Scripts/evaluate.ps1` |
-| Initialize baseline | `pwsh Scripts/Initialize-Baseline.ps1` |
-| **Full deploy + e2e** | **`pwsh Scripts/deploy.ps1`** |
-| Re-run e2e only | `pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy` |
-| Run e2e standalone | `pwsh Scripts/run-e2e.ps1` |
-| Start the suite | `pwsh D:\Harness-Recon\start-suite.ps1` |
-| Stop the suite | `pwsh D:\Harness-Recon\stop-suite.ps1` |
-| Reconciliation API (local) | `http://localhost:5200` |
-| Payment API (local) | `http://localhost:5201` |
-| React UI (local) | `http://localhost:4202` |
-| Recon ACI | `http://tideline-recon-poc.westus.azurecontainer.io:8080` |
-| Payment ACI | `http://tideline-payment-poc.westus.azurecontainer.io:8080` |
+| Goal | WSL (bash) | PowerShell |
+|------|------------|------------|
+| See all history | `bash Scripts/harness-cli.sh list-iterations` | `pwsh Scripts/harness-cli.ps1 list-iterations` |
+| Current best scores | `bash Scripts/harness-cli.sh pareto-frontier` | `pwsh Scripts/harness-cli.ps1 pareto-frontier` |
+| Failed tests for iter N | `bash Scripts/harness-cli.sh show-traces N` | `pwsh Scripts/harness-cli.ps1 show-traces N` |
+| Hypothesis contract results | `bash Scripts/harness-cli.sh show-contract N` | `pwsh Scripts/harness-cli.ps1 show-contract N` |
+| Diff two iterations | `bash Scripts/harness-cli.sh diff-scores A B` | `pwsh Scripts/harness-cli.ps1 diff-scores A B` |
+| Validate a change | `bash Scripts/validate.sh` | `pwsh Scripts/validate.ps1` |
+| Run full evaluation | `bash Scripts/evaluate.sh` | `pwsh Scripts/evaluate.ps1` |
+| Initialize baseline | *(use PowerShell)* | `pwsh Scripts/Initialize-Baseline.ps1` |
+| **Full deploy + e2e** | **`bash Scripts/deploy.sh`** | **`pwsh Scripts/deploy.ps1`** |
+| Re-run e2e only | `bash Scripts/deploy.sh --skip-build --skip-deploy` | `pwsh Scripts/deploy.ps1 -SkipBuild -SkipPush -SkipDeploy` |
+| Run e2e standalone | `bash Scripts/run-e2e.sh` | `pwsh Scripts/run-e2e.ps1` |
+| Start the suite | `bash start-suite.sh` | `pwsh start-suite.ps1` |
+| Stop the suite | `bash stop-suite.sh` | `pwsh stop-suite.ps1` |
+| Reconciliation API (local) | `http://localhost:5200` | |
+| Payment API (local) | `http://localhost:5201` | |
+| React UI (local) | `http://localhost:4202` | |
+| Recon ACI | `http://tideline-recon-poc.westus.azurecontainer.io:8080` | |
+| Payment ACI | `http://tideline-payment-poc.westus.azurecontainer.io:8080` | |
 
 ---
 

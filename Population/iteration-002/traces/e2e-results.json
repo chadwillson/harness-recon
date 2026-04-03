@@ -1,0 +1,36 @@
+{
+  "timestamp": "2026-04-02T19:30:00Z",
+  "reconUrl": "http://tideline-recon-poc.westus.azurecontainer.io:8080",
+  "paymentUrl": "http://tideline-payment-poc.westus.azurecontainer.io:8080",
+  "recon": {
+    "passed": 54,
+    "failed": 1,
+    "skipped": 2,
+    "total": 57,
+    "passRate": 0.9818,
+    "exitCode": 1,
+    "failures": [
+      {
+        "test": "Payment Ledger stats load without 500",
+        "status": "timedOut",
+        "error": "Test timeout of 90000ms exceeded \u2014 Payment container not in this deployment scope",
+        "spec": "e2e/reset-workflow.spec.ts:51"
+      }
+    ]
+  },
+  "payment": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "total": 0,
+    "passRate": 0,
+    "exitCode": -1,
+    "failures": []
+  },
+  "combined": {
+    "passed": 54,
+    "failed": 1,
+    "total": 57,
+    "passRate": 0.9818
+  }
+}
